@@ -143,6 +143,23 @@ calendar-commander/
    - Optional `TIMEZONE`
 5. Upload/provide `credentials.json` and `token.json` securely for runtime.
 
+## Common Issues
+
+### redirect_uri_mismatch
+- The redirect URI in the OAuth request doesn't match your configured URIs
+- Go to Google Cloud Console → APIs & Services → Credentials → Your OAuth Client
+- Add the exact redirect URI (e.g., `http://localhost:9999/`) to "Authorized redirect URIs"
+
+### access_denied
+- OAuth consent screen not configured
+- Go to APIs & Services → OAuth consent screen
+- Add your email as Test User if in "Testing" mode
+
+### accessNotConfigured
+- Google Calendar API is disabled
+- Go to APIs & Services → Library
+- Enable Google Calendar API
+
 ## Notes for Production
 
 - Never hardcode secrets.
