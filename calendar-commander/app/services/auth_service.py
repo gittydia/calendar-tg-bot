@@ -50,6 +50,6 @@ class AuthService:
             str(self._credentials_file),
             self._scopes,
         )
-        creds = flow.run_local_server(port=0)
+        creds = flow.run_local_server(port=9999)
         self._token_file.write_text(creds.to_json(), encoding="utf-8")
         return creds
