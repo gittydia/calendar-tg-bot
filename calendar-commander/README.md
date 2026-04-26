@@ -15,7 +15,7 @@ Personal Telegram bot for Google Calendar, built with FastAPI + python-telegram-
 
 ```text
 calendar-commander/
-│
+|
 ├── app/
 │   ├── __init__.py
 │   ├── main.py
