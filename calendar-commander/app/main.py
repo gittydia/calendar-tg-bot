@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -73,6 +76,21 @@ app = FastAPI(title="Calendar Commander Bot", lifespan=lifespan)
 async def health() -> dict[str, str]:
     """Lightweight liveness probe endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/")
+async def trigger_oauth() -> dict[str, str]:
+    """Trigger OAuth flow if needed."""
+    from app.services.auth_service import AuthService
+    from app.config import get_settings
+    settings = get_settings()
+    auth_service = AuthService(
+        credentials_file=settings.credentials_file,
+        token_file=settings.token_file,
+        scopes=SCOPES,
+    )
+    creds = auth_service.get_credentials()
+    return {"status": "ok", "has_credentials": creds is not None}
 
 
 @app.post("/webhook")
