@@ -79,7 +79,7 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/")
-async def trigger_oauth() -> dict[str, str]:
+async def trigger_oauth() -> dict[str, str | bool]:
     """Trigger OAuth flow if needed."""
     from app.services.auth_service import AuthService
     from app.config import get_settings
