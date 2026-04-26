@@ -70,28 +70,64 @@ calendar-commander/
    - `WEBHOOK_URL` (public HTTPS URL)
    - Optional timezone override (`TIMEZONE`)
 
-4. Add your real Google OAuth desktop credentials to `credentials.json`.
+4. Add your real Google OAuth credentials to `credentials.json`.
 
-## Google OAuth Setup (Desktop App Flow)
+## Google Cloud Setup
 
-1. Open Google Cloud Console.
-2. Create/select project.
-3. Enable **Google Calendar API**.
-4. Go to **APIs & Services > Credentials**.
-5. Create **OAuth client ID** with type **Desktop app**.
-6. Download credentials JSON and save as `credentials.json` in project root.
-7. Run app locally once and trigger a calendar command (`/today` or `/events`).
-8. Browser auth flow opens; once approved, `token.json` is generated and reused.
+### 1. Enable Google Calendar API
 
-## Run Locally
+1. Go to Google Cloud Console → APIs & Services → Library
+2. Search "Google Calendar API"
+3. Click Enable
 
-Use the same startup command as Render:
+### 2. Create OAuth Credentials (Web Application)
 
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
+1. Go to APIs & Services → Credentials
+2. Click Create Credentials → OAuth client ID
+3. Select **Web application** (NOT Desktop app)
+4. Add authorized redirect URIs:
+   - `http://localhost:9999/`
+5. Click Create
+6. Download JSON and save as `credentials.json`
 
-Expose your local server publicly for Telegram webhook testing (for example, using ngrok) and set `WEBHOOK_URL` accordingly.
+### 3. Configure OAuth Consent Screen
+
+1. Go to APIs & Services → OAuth consent screen
+2. If using "Testing" mode, add your email as a Test User
+3. Or publish the app (requires Google verification for production)
+
+## Local Run (With OAuth)
+
+1. Run without webhook first to complete OAuth:
+
+   ```bash
+   $env:WEBHOOK_URL=""
+   uvicorn app.main:app --host 127.0.0.1 --port 8080
+   ```
+
+2. Open `http://localhost:8080/` in browser
+3. Complete OAuth flow in browser
+4. `token.json` will be created automatically
+
+## Run with Ngrok/Production
+
+1. Start ngrok:
+
+   ```bash
+   ngrok http 8080
+   ```
+
+2. Update `.env` with your ngrok URL:
+
+   ```
+   WEBHOOK_URL=https://your-ngrok-url.ngrok-free.dev/
+   ```
+
+3. Run the app:
+
+   ```bash
+   uvicorn app.main:app --host 0.0.0.0 --port 8080
+   ```
 
 ## Render Deployment
 
