@@ -4,3 +4,4 @@ google-auth-oauthlib==1.2.2
 google-api-python-client==2.179.0
 dateparser==1.2.2
 uvicorn[standard]==0.35.0
+python-dotenv==1.0.1
