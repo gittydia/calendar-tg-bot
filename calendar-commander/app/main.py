@@ -119,6 +119,7 @@ async def lifespan(fastapi_app: FastAPI):
     try:
         yield
     finally:
+        LOGGER.info("App shutdown initiated. Leaving webhook intact.")
         await telegram_app.stop()
         await telegram_app.shutdown()
 
@@ -132,9 +133,8 @@ async def health() -> dict[str, str]:
 
 
 @app.head("/")
-async def health_head() -> dict:
-    return {"status": "ok"}
-
+async def health_head() -> Response:
+    return Response(status_code=200)
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
