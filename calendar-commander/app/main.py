@@ -94,26 +94,35 @@ async def lifespan(fastapi_app: FastAPI):
     await telegram_app.start()
     await setup_bot_metadata(telegram_app)
 
+    webhook_url = settings.full_webhook_url
     for attempt in range(5):
         try:
-            await telegram_app.bot.set_webhook(url=settings.full_webhook_url)
+            await telegram_app.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=["message", "callback_query"],
+            )
             info = await telegram_app.bot.get_webhook_info()
-            if info.url == settings.full_webhook_url:
-                LOGGER.info("Webhook successfully configured and verified at %s", settings.full_webhook_url)
+            LOGGER.info("Telegram webhook info: url='%s' last_err='%s'", info.url, info.last_error_message)
+            
+            if info.url == webhook_url:
+                LOGGER.info("Webhook successfully configured and verified at %s", webhook_url)
                 break
             else:
-                LOGGER.warning("Webhook verification failed (got: %s). Retrying in 5s...", info.url)
+                LOGGER.warning("Webhook not yet set (got '%s'). Retrying in 5s...", info.url)
                 await asyncio.sleep(5)
         except Exception as exc:
             LOGGER.warning("Webhook setup failed on attempt %d: %s", attempt + 1, exc)
             await asyncio.sleep(5)
     else:
-        LOGGER.error("Webhook setup failed after 5 attempts.")
+        LOGGER.error("Webhook setup failed after 5 attempts. Use /force_webhook to retry.")
 
     try:
         yield
     finally:
-        await telegram_app.bot.delete_webhook(drop_pending_updates=False)
+        try:
+            await telegram_app.bot.delete_webhook()
+        except Exception:
+            pass
         await telegram_app.stop()
         await telegram_app.shutdown()
 
@@ -206,6 +215,21 @@ async def oauth_callback(request: Request):
                  f'<a href="{settings.connect_url}" class="btn">Go Back</a>'
         )
     )
+
+
+@app.get("/force_webhook")
+async def force_webhook() -> dict:
+    settings: Settings = app.state.settings
+    telegram_app: Application = app.state.telegram_app
+    try:
+        await telegram_app.bot.set_webhook(
+            url=settings.full_webhook_url,
+            allowed_updates=["message", "callback_query"],
+        )
+        info = await telegram_app.bot.get_webhook_info()
+        return {"ok": True, "url": info.url, "error": info.last_error_message}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/webhook")
