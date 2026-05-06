@@ -1,0 +1,25 @@
+services:
+  calendar-commander:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: calendar-commander
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - data:/app/data
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - BASE_URL=${BASE_URL}
+      - PORT=8000
+      - TIMEZONE=${TIMEZONE:-Asia/Manila}
+      - GOOGLE_CREDENTIALS_FILE=/app/credentials.json
+      - DB_PATH=/app/data/tokens.db
+
+volumes:
+  data:
