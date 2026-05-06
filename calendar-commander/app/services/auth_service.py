@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Sequence
 from urllib.parse import quote
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 
 from app.services.token_store import TokenStore
 
@@ -26,6 +26,19 @@ class AuthService:
         self._credentials_file = Path(credentials_file)
         self._token_store = token_store
         self._scopes = list(scopes)
+        self._client_config = self._load_client_config()
+
+    def _load_client_config(self) -> dict:
+        if not self._credentials_file.exists():
+            env_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+            if env_json:
+                return json.loads(env_json)
+            raise FileNotFoundError(f"OAuth credentials file not found: {self._credentials_file}")
+        with open(self._credentials_file, "r") as f:
+            return json.load(f)
+
+    def _get_web_config(self) -> dict:
+        return self._client_config.get("web", self._client_config.get("installed", {}))
 
     def get_credentials(self, telegram_user_id: str) -> Credentials | None:
         creds = self._load(telegram_user_id)
@@ -50,13 +63,7 @@ class AuthService:
         return Credentials.from_authorized_user_info(data, self._scopes)
 
     def build_oauth_url(self, redirect_uri: str, telegram_user_id: str) -> str:
-        if not self._credentials_file.exists():
-            raise FileNotFoundError(
-                f"OAuth credentials file not found: {self._credentials_file}"
-            )
-        with open(self._credentials_file, "r") as f:
-            client_config = json.load(f)
-        web_config = client_config.get("web", client_config.get("installed", {}))
+        web_config = self._get_web_config()
         client_id = web_config["client_id"]
         params = {
             "client_id": client_id,
@@ -71,14 +78,8 @@ class AuthService:
         return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
 
     def exchange_code(self, code: str, telegram_user_id: str, redirect_uri: str) -> Credentials:
-        if not self._credentials_file.exists():
-            raise FileNotFoundError(
-                f"OAuth credentials file not found: {self._credentials_file}"
-            )
         import requests
-        with open(self._credentials_file, "r") as f:
-            client_config = json.load(f)
-        web_config = client_config.get("web", client_config.get("installed", {}))
+        web_config = self._get_web_config()
         client_id = web_config["client_id"]
         client_secret = web_config.get("client_secret", "")
 
