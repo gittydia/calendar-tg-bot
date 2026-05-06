@@ -119,10 +119,6 @@ async def lifespan(fastapi_app: FastAPI):
     try:
         yield
     finally:
-        try:
-            await telegram_app.bot.delete_webhook()
-        except Exception:
-            pass
         await telegram_app.stop()
         await telegram_app.shutdown()
 
@@ -135,7 +131,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def index():
     settings: Settings = app.state.settings
     services: BotServices = app.state.services
