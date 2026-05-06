@@ -27,6 +27,37 @@ logging.basicConfig(
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
+CONNECT_PAGE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Google Calendar</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+        .card {{ background: #1e293b; border-radius: 16px; padding: 2.5rem; max-width: 420px; width: 90%; box-shadow: 0 25px 50px rgba(0,0,0,.4); text-align: center; }}
+        h1 {{ font-size: 1.5rem; margin-bottom: .5rem; }}
+        p {{ color: #94a3b8; margin-bottom: 2rem; line-height: 1.6; }}
+        .btn {{ display: inline-block; background: #4285f4; color: #fff; padding: .85rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1rem; transition: background .2s; }}
+        .btn:hover {{ background: #3367d6; }}
+        .icon {{ font-size: 3rem; margin-bottom: 1rem; }}
+        .footer {{ margin-top: 2rem; font-size: .8rem; color: #64748b; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">📅</div>
+        <h1>Connect Google Calendar</h1>
+        <p>Link your Google Calendar to interact with it via Telegram. You'll be redirected to Google to authorize access.</p>
+        {body}
+        <div class="footer">Powered by Calendar Commander</div>
+    </div>
+</body>
+</html>
+"""
+
 
 def build_services(settings: Settings) -> BotServices:
     """Create service-layer dependencies."""
