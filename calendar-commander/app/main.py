@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+
 from dotenv import load_dotenv
 
 load_dotenv()
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
 from telegram import Update
 from telegram.ext import Application
 
@@ -18,6 +20,7 @@ from app.config import Settings, get_settings
 from app.services.auth_service import AuthService
 from app.services.calendar_service import CalendarService
 from app.services.parser_service import ParserService
+from app.services.token_store import TokenStore
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
@@ -60,10 +63,10 @@ CONNECT_PAGE = """\
 
 
 def build_services(settings: Settings) -> BotServices:
-    """Create service-layer dependencies."""
+    token_store = TokenStore(db_path=settings.db_path)
     auth_service = AuthService(
         credentials_file=settings.credentials_file,
-        token_file=settings.token_file,
+        token_store=token_store,
         scopes=SCOPES,
     )
     calendar_service = CalendarService(auth_service=auth_service, timezone=settings.timezone)
@@ -78,13 +81,13 @@ def build_services(settings: Settings) -> BotServices:
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
-    """Initialize and shutdown Telegram webhook runtime."""
     settings = get_settings()
     services = build_services(settings)
     telegram_app = create_application(settings, services)
 
     fastapi_app.state.settings = settings
     fastapi_app.state.telegram_app = telegram_app
+    fastapi_app.state.services = services
 
     await telegram_app.initialize()
     await telegram_app.start()
@@ -105,7 +108,6 @@ app = FastAPI(title="Calendar Commander Bot", lifespan=lifespan)
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    """Lightweight liveness probe endpoint."""
     return {"status": "ok"}
 
 
