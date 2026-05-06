@@ -111,24 +111,90 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/")
-async def trigger_oauth() -> dict[str, str | bool]:
-    """Trigger OAuth flow if needed."""
-    from app.services.auth_service import AuthService
-    from app.config import get_settings
-    settings = get_settings()
-    auth_service = AuthService(
-        credentials_file=settings.credentials_file,
-        token_file=settings.token_file,
-        scopes=SCOPES,
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    settings: Settings = app.state.settings
+    services: BotServices = app.state.services
+    has_tokens = services._calendar_service._auth_service._token_store.has_credentials("any")
+    if has_tokens:
+        body = '<p style="color:#4ade80;margin-bottom:1.5rem;">✅ The bot is running.</p><p>Open Telegram and send <code>/start</code> to your bot.</p>'
+    else:
+        body = f'<a href="{settings.connect_url}" class="btn">Connect via Telegram Bot</a>'
+    return CONNECT_PAGE.format(body=body)
+
+
+@app.get("/connect", response_class=HTMLResponse)
+async def connect_page(request: Request):
+    uid = request.query_params.get("uid", "")
+    services: BotServices = app.state.services
+    settings: Settings = app.state.settings
+
+    if uid:
+        auth_url = services._calendar_service._auth_service.build_oauth_url(
+            settings.oauth_redirect_uri, uid
+        )
+        body = (
+            f'<a href="{auth_url}" class="btn">Connect with Google</a>'
+            f'<p style="margin-top:1.5rem;font-size:.85rem;color:#64748b;">This will authorize Calendar Commander to access your Google Calendar.</p>'
+        )
+    else:
+        body = '<p style="color:#f59e0b;margin-bottom:1.5rem;">Connect through your Telegram bot for the best experience. Send <code>/connect</code> in the bot.</p>'
+
+    return CONNECT_PAGE.format(body=body)
+
+
+@app.get("/oauth/callback")
+async def oauth_callback(request: Request):
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+    error = request.query_params.get("error")
+
+    if error:
+        return HTMLResponse(
+            content=CONNECT_PAGE.format(
+                body=f'<p style="color:#f87171;margin-bottom:1.5rem;">Error: {error}</p>'
+                     f'<a href="/" class="btn">Go Back</a>'
+            )
+        )
+
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state parameter")
+
+    services: BotServices = app.state.services
+    auth = services._calendar_service._auth_service
+    settings: Settings = app.state.settings
+    redirect_uri = settings.oauth_redirect_uri
+
+    try:
+        auth.exchange_code(code, state, redirect_uri)
+    except Exception as exc:
+        LOGGER.exception("OAuth code exchange failed", exc_info=exc)
+        return HTMLResponse(
+            content=CONNECT_PAGE.format(
+                body=f'<p style="color:#f87171;margin-bottom:1.5rem;">Failed to connect: {exc}</p>'
+                     f'<a href="/" class="btn">Go Back</a>'
+            )
+        )
+
+    telegram_app: Application = app.state.telegram_app
+    try:
+        await telegram_app.bot.send_message(
+            chat_id=int(state),
+            text="✅ Google Calendar connected successfully! You can now use /today, /events, /create_event, etc.",
+        )
+    except Exception as exc:
+        LOGGER.warning("Could not send confirmation to user %s: %s", state, exc)
+
+    return HTMLResponse(
+        content=CONNECT_PAGE.format(
+            body='<p style="color:#4ade80;margin-bottom:1.5rem;">✅ Connected successfully! You can close this page and check Telegram.</p>'
+                 f'<a href="{settings.connect_url}" class="btn">Go Back</a>'
+        )
     )
-    creds = auth_service.get_credentials()
-    return {"status": "ok", "has_credentials": creds is not None}
 
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request) -> dict[str, str]:
-    """Receive Telegram webhook updates and feed PTB update queue."""
     telegram_app: Application | None = getattr(request.app.state, "telegram_app", None)
     if telegram_app is None:
         raise HTTPException(status_code=503, detail="Telegram application is not initialized.")
@@ -137,7 +203,7 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         payload = await request.json()
         update = Update.de_json(payload, telegram_app.bot)
         await telegram_app.update_queue.put(update)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.exception("Failed to process webhook payload", exc_info=exc)
         raise HTTPException(status_code=400, detail="Invalid webhook payload.") from exc
 
