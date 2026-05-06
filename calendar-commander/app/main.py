@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from dotenv import load_dotenv
@@ -92,8 +93,22 @@ async def lifespan(fastapi_app: FastAPI):
     await telegram_app.initialize()
     await telegram_app.start()
     await setup_bot_metadata(telegram_app)
-    await telegram_app.bot.set_webhook(url=settings.full_webhook_url)
-    LOGGER.info("Webhook configured at %s", settings.full_webhook_url)
+
+    for attempt in range(5):
+        try:
+            await telegram_app.bot.set_webhook(url=settings.full_webhook_url)
+            info = await telegram_app.bot.get_webhook_info()
+            if info.url == settings.full_webhook_url:
+                LOGGER.info("Webhook successfully configured and verified at %s", settings.full_webhook_url)
+                break
+            else:
+                LOGGER.warning("Webhook verification failed (got: %s). Retrying in 5s...", info.url)
+                await asyncio.sleep(5)
+        except Exception as exc:
+            LOGGER.warning("Webhook setup failed on attempt %d: %s", attempt + 1, exc)
+            await asyncio.sleep(5)
+    else:
+        LOGGER.error("Webhook setup failed after 5 attempts.")
 
     try:
         yield
