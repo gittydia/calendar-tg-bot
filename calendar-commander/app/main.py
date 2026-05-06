@@ -131,7 +131,12 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
+@app.head("/")
+async def health_head() -> dict:
+    return {"status": "ok"}
+
+
+@app.get("/", response_class=HTMLResponse)
 async def index():
     settings: Settings = app.state.settings
     services: BotServices = app.state.services
