@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -23,21 +22,55 @@ from app.utils.formatters import format_event, format_numbered_event
 LOGGER = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
 class BotServices:
-    """Dependencies injected into bot handlers."""
+    """Factory for per-user service instances."""
 
-    calendar_service: CalendarService
-    parser_service: ParserService
-    timezone: str
+    def __init__(
+        self,
+        calendar_service: CalendarService,
+        parser_service: ParserService,
+        timezone: str,
+    ) -> None:
+        self._calendar_service = calendar_service
+        self._parser_service = parser_service
+        self._timezone = timezone
+
+    def for_user(self, telegram_user_id: str) -> "UserServices":
+        return UserServices(
+            telegram_user_id=telegram_user_id,
+            calendar_service=self._calendar_service,
+            parser_service=self._parser_service,
+            timezone=self._timezone,
+        )
+
+
+class UserServices:
+    """Per-user service context."""
+
+    def __init__(
+        self,
+        telegram_user_id: str,
+        calendar_service: CalendarService,
+        parser_service: ParserService,
+        timezone: str,
+    ) -> None:
+        self.telegram_user_id = telegram_user_id
+        self.calendar_service = calendar_service
+        self.parser_service = parser_service
+        self.timezone = timezone
+
+    @property
+    def uid(self) -> str:
+        return self.telegram_user_id
 
 
 def register_handlers(application: Application, services: BotServices) -> None:
-    """Attach all command and message handlers to the Telegram app."""
     application.bot_data["services"] = services
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("connect", connect_command))
+    application.add_handler(CommandHandler("disconnect", disconnect_command))
     application.add_handler(CommandHandler("today", today_command))
     application.add_handler(CommandHandler("events", events_command))
     application.add_handler(CommandHandler("create_event", create_event_command))
@@ -56,25 +89,63 @@ def _services(context: ContextTypes.DEFAULT_TYPE) -> BotServices:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Welcome message and high-level usage instructions."""
     await update.effective_message.reply_text(
         "Hello! I can manage your Google Calendar.\n"
-        "Use /help to see all commands."
+        "Use /connect to link your account, then /help for commands."
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display command help message."""
     await update.effective_message.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
 
 
-async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show today's events sorted by time."""
+async def connect_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     services = _services(context)
+    user_id = str(update.effective_user.id)
+    user = services.for_user(user_id)
+
+    if user.calendar_service._auth_service.get_credentials(user_id):
+        await update.effective_message.reply_text(
+            "Your Google Calendar is already connected. "
+            "Use /disconnect to unlink and reconnect."
+        )
+        return
+
+    settings = context.application.bot_data["settings"]
+    connect_url = f"{settings.base_url.rstrip('/')}/connect?uid={user_id}"
+
+    await update.effective_message.reply_text(
+        "Click the link below to connect your Google Calendar:\n\n"
+        f"{connect_url}",
+        disable_web_page_preview=True,
+    )
+
+
+async def disconnect_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    services = _services(context)
+    user_id = str(update.effective_user.id)
+    auth = services.for_user(user_id).calendar_service._auth_service
+
+    if auth.disconnect(user_id):
+        await update.effective_message.reply_text(
+            "Your Google Calendar has been disconnected."
+        )
+    else:
+        await update.effective_message.reply_text(
+            "No connected Google Calendar account found."
+        )
+
+
+async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    services = _services(context)
+    user = services.for_user(str(update.effective_user.id))
 
     try:
-        events = await services.calendar_service.get_today_events()
-    except Exception as exc:  # noqa: BLE001
+        events = await user.calendar_service.get_today_events(user.uid)
+    except PermissionError as exc:
+        await update.effective_message.reply_text(str(exc))
+        return
+    except Exception as exc:
         LOGGER.exception("Failed to fetch today's events", exc_info=exc)
         await update.effective_message.reply_text("Unable to fetch today's events right now.")
         return
@@ -84,17 +155,20 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     lines = ["📌 Today's events:"]
-    lines.extend(format_event(item, services.timezone) for item in events)
+    lines.extend(format_event(item, user.timezone) for item in events)
     await update.effective_message.reply_text("\n".join(lines))
 
 
 async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the next 10 upcoming events."""
     services = _services(context)
+    user = services.for_user(str(update.effective_user.id))
 
     try:
-        events = await services.calendar_service.get_upcoming_events(limit=10)
-    except Exception as exc:  # noqa: BLE001
+        events = await user.calendar_service.get_upcoming_events(user.uid, limit=10)
+    except PermissionError as exc:
+        await update.effective_message.reply_text(str(exc))
+        return
+    except Exception as exc:
         LOGGER.exception("Failed to fetch upcoming events", exc_info=exc)
         await update.effective_message.reply_text("Unable to fetch upcoming events right now.")
         return
@@ -104,13 +178,13 @@ async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     lines = ["📅 Next 10 events:"]
-    lines.extend(format_event(item, services.timezone) for item in events)
+    lines.extend(format_event(item, user.timezone) for item in events)
     await update.effective_message.reply_text("\n".join(lines))
 
 
 async def create_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Create an event from natural language input with default 1-hour duration."""
     services = _services(context)
+    user = services.for_user(str(update.effective_user.id))
     raw_text = " ".join(context.args).strip()
 
     if not raw_text:
@@ -120,7 +194,7 @@ async def create_event_command(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
-    parsed = services.parser_service.parse_event_text(raw_text)
+    parsed = user.parser_service.parse_event_text(raw_text)
     if parsed is None:
         await update.effective_message.reply_text(
             "Couldn't parse a date/time from your input.\n"
@@ -129,28 +203,35 @@ async def create_event_command(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     try:
-        event = await services.calendar_service.create_event(
+        event = await user.calendar_service.create_event(
+            user.uid,
             title=parsed.title,
             start_time=parsed.start_time,
             duration_minutes=60,
         )
-    except Exception as exc:  # noqa: BLE001
+    except PermissionError as exc:
+        await update.effective_message.reply_text(str(exc))
+        return
+    except Exception as exc:
         LOGGER.exception("Failed to create event", exc_info=exc)
         await update.effective_message.reply_text("Unable to create the event right now.")
         return
 
     await update.effective_message.reply_text(
-        "✅ Event created:\n" + format_event(event, services.timezone)
+        "✅ Event created:\n" + format_event(event, user.timezone)
     )
 
 
 async def delete_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """List upcoming events and ask user for index to delete."""
     services = _services(context)
+    user = services.for_user(str(update.effective_user.id))
 
     try:
-        events = await services.calendar_service.get_upcoming_events(limit=10)
-    except Exception as exc:  # noqa: BLE001
+        events = await user.calendar_service.get_upcoming_events(user.uid, limit=10)
+    except PermissionError as exc:
+        await update.effective_message.reply_text(str(exc))
+        return
+    except Exception as exc:
         LOGGER.exception("Failed to load events for deletion", exc_info=exc)
         await update.effective_message.reply_text("Unable to load events for deletion right now.")
         return
@@ -164,7 +245,7 @@ async def delete_event_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     lines = ["Select an event to delete by sending its number:"]
     lines.extend(
-        format_numbered_event(index + 1, event, services.timezone)
+        format_numbered_event(index + 1, event, user.timezone)
         for index, event in enumerate(events)
     )
     await update.effective_message.reply_text("\n".join(lines))
@@ -174,11 +255,11 @@ async def delete_event_index_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Consume free-text number input for deletion workflow."""
     if not context.user_data.get("awaiting_delete_index"):
         return
 
     services = _services(context)
+    user = services.for_user(str(update.effective_user.id))
     message = update.effective_message.text.strip()
     candidates: list[dict] = context.user_data.get("delete_candidates", [])
 
@@ -198,13 +279,13 @@ async def delete_event_index_handler(
         return
 
     try:
-        await services.calendar_service.delete_event(event_id)
-    except Exception as exc:  # noqa: BLE001
+        await user.calendar_service.delete_event(user.uid, event_id)
+        await update.effective_message.reply_text("🗑️ Event deleted successfully.")
+    except PermissionError as exc:
+        await update.effective_message.reply_text(str(exc))
+    except Exception as exc:
         LOGGER.exception("Failed to delete event", exc_info=exc)
         await update.effective_message.reply_text("Unable to delete the selected event right now.")
-        return
     finally:
         context.user_data["awaiting_delete_index"] = False
         context.user_data.pop("delete_candidates", None)
-
-    await update.effective_message.reply_text("🗑️ Event deleted successfully.")
