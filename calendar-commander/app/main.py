@@ -4,6 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
+
+# Monkey-patch google.auth._helpers.utcnow to return timezone-aware datetime
+# This fixes "can't compare offset-naive and offset-aware datetimes" in old versions
+try:
+    from google.auth import _helpers
+    if not hasattr(_helpers.utcnow, "_patched"):
+        _original_utcnow = _helpers.utcnow
+        _helpers.utcnow = lambda: datetime.now(timezone.utc)
+        _helpers.utcnow._patched = True
+except ImportError:
+    pass
 
 from dotenv import load_dotenv
 
