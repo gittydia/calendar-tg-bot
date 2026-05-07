@@ -46,15 +46,34 @@ class AuthService:
         if creds is None:
             return None
 
-        if creds.valid:
+        if self._is_valid(creds):
             return creds
 
-        if creds.expired and creds.refresh_token:
+        if self._is_expired(creds) and creds.refresh_token:
             creds.refresh(Request())
             self._token_store.save_credentials(telegram_user_id, creds.to_json())
             return creds
 
         return None
+
+    def _is_valid(self, creds: Credentials) -> bool:
+        try:
+            return creds.valid
+        except TypeError:
+            return creds.token is not None and not self._is_expired(creds)
+
+    def _is_expired(self, creds: Credentials) -> bool:
+        if creds.expiry is None:
+            return False
+        try:
+            from google.auth import _helpers
+            now = _helpers.utcnow()
+            if creds.expiry.tzinfo is None:
+                from datetime import timezone as _tz
+                return now >= creds.expiry.replace(tzinfo=_tz.utc)
+            return now >= creds.expiry
+        except TypeError:
+            return False
 
     def _load(self, telegram_user_id: str) -> Credentials | None:
         json_str = self._token_store.get_credentials(telegram_user_id)
