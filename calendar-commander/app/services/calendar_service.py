@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
+from typing import Any, cast
 
 from googleapiclient.discovery import Resource, build
 
@@ -17,20 +18,15 @@ class CalendarService:
     def __init__(self, auth_service: AuthService, timezone: str) -> None:
         self._auth_service = auth_service
         self._timezone = timezone
-        self._services: dict[str, Resource] = {}
 
     def _get_service(self, telegram_user_id: str) -> Resource:
-        if telegram_user_id not in self._services:
-            credentials = self._auth_service.get_credentials(telegram_user_id)
-            if credentials is None:
-                raise PermissionError(
-                    f"User {telegram_user_id} has not connected their Google account. "
-                    "Use /connect to link your calendar."
-                )
-            self._services[telegram_user_id] = build(
-                "calendar", "v3", credentials=credentials, cache_discovery=False
+        credentials = self._auth_service.get_credentials(telegram_user_id)
+        if credentials is None:
+            raise PermissionError(
+                f"User {telegram_user_id} has not connected their Google account. "
+                "Use /connect to link your calendar."
             )
-        return self._services[telegram_user_id]
+        return cast(Resource, build("calendar", "v3", credentials=credentials, cache_discovery=False))
 
     async def get_today_events(self, telegram_user_id: str) -> list[dict]:
         tz = ZoneInfo(self._timezone)
@@ -56,7 +52,7 @@ class CalendarService:
         }
 
         def _create() -> dict:
-            service = self._get_service(telegram_user_id)
+            service = cast(Any, self._get_service(telegram_user_id))
             return (
                 service.events()
                 .insert(calendarId="primary", body=body)
@@ -67,7 +63,7 @@ class CalendarService:
 
     async def delete_event(self, telegram_user_id: str, event_id: str) -> None:
         def _delete() -> None:
-            service = self._get_service(telegram_user_id)
+            service = cast(Any, self._get_service(telegram_user_id))
             service.events().delete(calendarId="primary", eventId=event_id).execute()
 
         await asyncio.to_thread(_delete)
@@ -80,7 +76,7 @@ class CalendarService:
         max_results: int,
     ) -> list[dict]:
         def _list() -> list[dict]:
-            service = self._get_service(telegram_user_id)
+            service = cast(Any, self._get_service(telegram_user_id))
             query: dict = {
                 "calendarId": "primary",
                 "timeMin": time_min,
