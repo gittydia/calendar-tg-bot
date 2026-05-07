@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 from urllib.parse import quote
@@ -60,7 +61,11 @@ class AuthService:
         if json_str is None:
             return None
         data = json.loads(json_str)
-        return Credentials.from_authorized_user_info(data, self._scopes)
+        creds = Credentials.from_authorized_user_info(data, self._scopes)
+        # Fix: ensure expiry has timezone info
+        if creds.expiry and creds.expiry.tzinfo is None:
+            creds.expiry = creds.expiry.replace(tzinfo=timezone.utc)
+        return creds
 
     def build_oauth_url(self, redirect_uri: str, telegram_user_id: str) -> str:
         web_config = self._get_web_config()
@@ -96,6 +101,7 @@ class AuthService:
         resp.raise_for_status()
         token_data = resp.json()
 
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=token_data.get("expires_in", 3600))
         creds = Credentials(
             token=token_data["access_token"],
             refresh_token=token_data.get("refresh_token"),
@@ -103,6 +109,7 @@ class AuthService:
             client_id=client_id,
             client_secret=client_secret,
             scopes=self._scopes,
+            expiry=expiry,
         )
         self._token_store.save_credentials(telegram_user_id, creds.to_json())
         return creds
