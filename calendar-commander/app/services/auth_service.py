@@ -68,6 +68,10 @@ class AuthService:
         try:
             from google.auth import _helpers
             now = _helpers.utcnow()
+            # Handle old google-auth where utcnow() returns naive datetime
+            if now.tzinfo is None:
+                from datetime import timezone as _tz
+                now = now.replace(tzinfo=_tz.utc)
             if creds.expiry.tzinfo is None:
                 from datetime import timezone as _tz
                 return now >= creds.expiry.replace(tzinfo=_tz.utc)
