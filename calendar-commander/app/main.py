@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 # Monkey-patch google.auth._helpers.utcnow to return timezone-aware datetime
 # This fixes "can't compare offset-naive and offset-aware datetimes" in old versions
@@ -34,6 +35,7 @@ from app.services.auth_service import AuthService
 from app.services.calendar_service import CalendarService
 from app.services.parser_service import ParserService
 from app.services.token_store import TokenStore
+from app.utils.formatters import format_event
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
@@ -92,6 +94,72 @@ def build_services(settings: Settings) -> BotServices:
     )
 
 
+async def send_daily_notifications(
+    services: BotServices,
+    telegram_app: Application,
+    settings: Settings,
+) -> None:
+    token_store = services._calendar_service._auth_service._token_store
+    user_ids = token_store.list_all_user_ids()
+
+    if not user_ids:
+        LOGGER.info("Daily scheduler: no connected users to notify")
+        return
+
+    LOGGER.info("Daily scheduler: sending schedule to %d users", len(user_ids))
+
+    for uid in user_ids:
+        try:
+            user = services.for_user(uid)
+            events = await user.calendar_service.get_today_events(uid)
+
+            if not events:
+                await telegram_app.bot.send_message(
+                    chat_id=int(uid),
+                    text="☀️ Good morning! No events scheduled for today.",
+                )
+            else:
+                lines = ["☀️ Good morning! Here's your schedule for today:"]
+                lines.extend(format_event(item, user.timezone) for item in events)
+                await telegram_app.bot.send_message(
+                    chat_id=int(uid),
+                    text="\n".join(lines),
+                )
+        except PermissionError:
+            LOGGER.warning("User %s not connected, skipping daily notification", uid)
+        except Exception as exc:
+            LOGGER.exception("Failed to send daily notification to user %s", uid, exc_info=exc)
+
+
+async def daily_scheduler(
+    services: BotServices,
+    telegram_app: Application,
+    settings: Settings,
+) -> None:
+    tz = ZoneInfo(settings.timezone)
+    LOGGER.info("Daily scheduler started (timezone: %s)", settings.timezone)
+
+    try:
+        while True:
+            now = datetime.now(tz)
+            target = datetime.combine(now.date(), time(6, 0), tzinfo=tz)
+            if now >= target:
+                target += timedelta(days=1)
+
+            seconds = (target - now).total_seconds()
+            LOGGER.info(
+                "Daily scheduler: next notification at %s (%d seconds from now)",
+                target, int(seconds),
+            )
+
+            await asyncio.sleep(seconds)
+            await send_daily_notifications(services, telegram_app, settings)
+    except asyncio.CancelledError:
+        LOGGER.info("Daily scheduler cancelled")
+    except Exception as exc:
+        LOGGER.exception("Daily scheduler failed", exc_info=exc)
+
+
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
     settings = get_settings()
@@ -128,10 +196,19 @@ async def lifespan(fastapi_app: FastAPI):
     else:
         LOGGER.error("Webhook setup failed after 5 attempts. Use /force_webhook to retry.")
 
+    scheduler_task = asyncio.create_task(
+        daily_scheduler(services, telegram_app, settings)
+    )
+
     try:
         yield
     finally:
         LOGGER.info("App shutdown initiated. Leaving webhook intact.")
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
         await telegram_app.stop()
         await telegram_app.shutdown()
 
