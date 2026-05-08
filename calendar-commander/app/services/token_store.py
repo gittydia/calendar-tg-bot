@@ -58,5 +58,12 @@ class TokenStore:
             conn.commit()
         return cursor.rowcount > 0
 
+    def list_all_user_ids(self) -> list[str]:
+        with sqlite3.connect(self._db) as conn:
+            rows = conn.execute(
+                "SELECT telegram_user_id FROM user_tokens"
+            ).fetchall()
+        return [row[0] for row in rows]
+
     def has_credentials(self, telegram_user_id: str) -> bool:
         return self.get_credentials(telegram_user_id) is not None
