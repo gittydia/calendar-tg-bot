@@ -17,6 +17,7 @@ class Settings:
     timezone: str = "Asia/Manila"
     credentials_file: str = "credentials.json"
     db_path: str = "tokens.db"
+    database_url: str = ""
 
     @property
     def full_webhook_url(self) -> str:
@@ -47,4 +48,5 @@ def get_settings() -> Settings:
         timezone=os.getenv("TIMEZONE", "Asia/Manila"),
         credentials_file=os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json"),
         db_path=os.getenv("DB_PATH", "tokens.db"),
+        database_url=os.getenv("DATABASE_URL", ""),
     )

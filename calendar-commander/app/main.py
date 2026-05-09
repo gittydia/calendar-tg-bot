@@ -78,7 +78,7 @@ CONNECT_PAGE = """\
 
 
 def build_services(settings: Settings) -> BotServices:
-    token_store = TokenStore(db_path=settings.db_path)
+    token_store = TokenStore(db_path=settings.db_path, database_url=settings.database_url)
     auth_service = AuthService(
         credentials_file=settings.credentials_file,
         token_store=token_store,
