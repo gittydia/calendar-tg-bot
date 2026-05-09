@@ -14,8 +14,16 @@ class TokenStore:
         self._database_url = database_url
         self._pg = bool(database_url)
         if self._pg:
-            self._init_pg()
-        else:
+            try:
+                self._init_pg()
+            except Exception as exc:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "PostgreSQL unavailable (%s), falling back to SQLite", exc
+                )
+                self._pg = False
+        if not self._pg:
             self._db = Path(db_path)
             self._init_sqlite()
 
@@ -23,8 +31,11 @@ class TokenStore:
         if self._pg:
             import psycopg2
 
-            return psycopg2.connect(self._database_url)
-        return sqlite3.connect(self._db)
+            return psycopg2.connect(
+                self._database_url,
+                connect_timeout=5,
+            )
+        return sqlite3.connect(self._db, timeout=5)
 
     def _init_pg(self) -> None:
         with self._conn() as conn:
