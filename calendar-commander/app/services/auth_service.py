@@ -137,5 +137,8 @@ class AuthService:
         self._token_store.save_credentials(telegram_user_id, creds.to_json())
         return creds
 
+    def list_all_user_ids(self) -> list[str]:
+        return self._token_store.list_all_user_ids()
+
     def disconnect(self, telegram_user_id: str) -> bool:
         return self._token_store.delete_credentials(telegram_user_id)
