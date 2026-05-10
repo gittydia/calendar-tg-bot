@@ -99,8 +99,7 @@ async def send_daily_notifications(
     telegram_app: Application,
     settings: Settings,
 ) -> None:
-    token_store = services._calendar_service._auth_service._token_store
-    user_ids = token_store.list_all_user_ids()
+    user_ids = services.list_user_ids()
 
     if not user_ids:
         LOGGER.info("Daily scheduler: no connected users to notify")
