@@ -35,6 +35,9 @@ class BotServices:
         self._parser_service = parser_service
         self._timezone = timezone
 
+    def list_user_ids(self) -> list[str]:
+        return self._calendar_service._auth_service.list_all_user_ids()
+
     def for_user(self, telegram_user_id: str) -> "UserServices":
         return UserServices(
             telegram_user_id=telegram_user_id,
@@ -89,17 +92,21 @@ def _services(context: ContextTypes.DEFAULT_TYPE) -> BotServices:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(
-        "Hello! I can manage your Google Calendar.\n"
-        "Use /connect to link your account, then /help for commands."
-    )
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            "Hello! I can manage your Google Calendar.\n"
+            "Use /connect to link your account, then /help for commands."
+        )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
+    if update.effective_message:
+        await update.effective_message.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
 
 
 async def connect_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_message is None:
+        return
     services = _services(context)
     user_id = str(update.effective_user.id)
     user = services.for_user(user_id)
@@ -122,6 +129,8 @@ async def connect_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def disconnect_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_message is None:
+        return
     services = _services(context)
     user_id = str(update.effective_user.id)
     auth = services.for_user(user_id).calendar_service._auth_service
@@ -137,6 +146,8 @@ async def disconnect_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_message is None:
+        return
     services = _services(context)
     user = services.for_user(str(update.effective_user.id))
 
@@ -160,6 +171,8 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_message is None:
+        return
     services = _services(context)
     user = services.for_user(str(update.effective_user.id))
 
@@ -183,9 +196,11 @@ async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def create_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_message is None:
+        return
     services = _services(context)
     user = services.for_user(str(update.effective_user.id))
-    raw_text = " ".join(context.args).strip()
+    raw_text = " ".join(context.args or []).strip()
 
     if not raw_text:
         await update.effective_message.reply_text(
@@ -223,6 +238,8 @@ async def create_event_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def delete_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_message is None or context.user_data is None:
+        return
     services = _services(context)
     user = services.for_user(str(update.effective_user.id))
 
@@ -255,12 +272,14 @@ async def delete_event_index_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not context.user_data.get("awaiting_delete_index"):
+    if context.user_data is None or not context.user_data.get("awaiting_delete_index"):
+        return
+    if update.effective_user is None or update.effective_message is None:
         return
 
     services = _services(context)
     user = services.for_user(str(update.effective_user.id))
-    message = update.effective_message.text.strip()
+    message = (update.effective_message.text or "").strip()
     candidates: list[dict] = context.user_data.get("delete_candidates", [])
 
     if not message.isdigit():
