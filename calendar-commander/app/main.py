@@ -130,6 +130,39 @@ async def send_daily_notifications(
             LOGGER.exception("Failed to send daily notification to user %s", uid, exc_info=exc)
 
 
+async def token_maintenance(services: BotServices) -> None:
+    """Monthly proactive token refresh to prevent 6-month refresh token expiry.
+
+    Google refresh tokens expire if unused for 6 months. By proactively
+    refreshing every ~30 days, we keep the refresh token alive indefinitely.
+    """
+    TOKEN_REFRESH_INTERVAL_DAYS = 30
+    LOGGER.info("Token maintenance started (interval: %d days)", TOKEN_REFRESH_INTERVAL_DAYS)
+
+    try:
+        while True:
+            await asyncio.sleep(TOKEN_REFRESH_INTERVAL_DAYS * 24 * 3600)
+
+            user_ids = services.list_user_ids()
+            if not user_ids:
+                LOGGER.info("Token maintenance: no users to refresh")
+                continue
+
+            auth = services._calendar_service._auth_service
+            success_count = 0
+            for uid in user_ids:
+                ok = auth.refresh_credentials(uid)
+                if ok:
+                    success_count += 1
+
+            LOGGER.info(
+                "Token maintenance: refreshed %d/%d users",
+                success_count, len(user_ids),
+            )
+    except asyncio.CancelledError:
+        LOGGER.info("Token maintenance cancelled")
+
+
 async def daily_scheduler(
     services: BotServices,
     telegram_app: Application,
@@ -198,14 +231,22 @@ async def lifespan(fastapi_app: FastAPI):
     scheduler_task = asyncio.create_task(
         daily_scheduler(services, telegram_app, settings)
     )
+    maintenance_task = asyncio.create_task(
+        token_maintenance(services)
+    )
 
     try:
         yield
     finally:
         LOGGER.info("App shutdown initiated. Leaving webhook intact.")
         scheduler_task.cancel()
+        maintenance_task.cancel()
         try:
             await scheduler_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await maintenance_task
         except asyncio.CancelledError:
             pass
         await telegram_app.stop()
