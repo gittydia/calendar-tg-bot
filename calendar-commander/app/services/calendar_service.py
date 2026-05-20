@@ -23,8 +23,8 @@ class CalendarService:
         credentials = self._auth_service.get_credentials(telegram_user_id)
         if credentials is None:
             raise PermissionError(
-                f"User {telegram_user_id} has not connected their Google account. "
-                "Use /connect to link your calendar."
+                "Your Google session has expired or is not connected. "
+                "Please use /connect to re-link your calendar."
             )
         return cast(Resource, build("calendar", "v3", credentials=credentials, cache_discovery=False))
 
