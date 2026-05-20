@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +14,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from app.services.token_store import TokenStore
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -50,7 +53,11 @@ class AuthService:
             return creds
 
         if self._is_expired(creds) and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception:
+                LOGGER.exception("Failed to refresh token for user %s", telegram_user_id)
+                return None
             self._token_store.save_credentials(telegram_user_id, creds.to_json())
             return creds
 
@@ -136,6 +143,22 @@ class AuthService:
         )
         self._token_store.save_credentials(telegram_user_id, creds.to_json())
         return creds
+
+    def refresh_credentials(self, telegram_user_id: str) -> bool:
+        """Proactively refresh a token to keep the refresh token's 6-month TTL alive.
+
+        Returns True if the token was successfully refreshed, False otherwise.
+        """
+        creds = self._load(telegram_user_id)
+        if creds is None or not creds.refresh_token:
+            return False
+        try:
+            creds.refresh(Request())
+            self._token_store.save_credentials(telegram_user_id, creds.to_json())
+            return True
+        except Exception:
+            LOGGER.exception("Proactive token refresh failed for user %s", telegram_user_id)
+            return False
 
     def list_all_user_ids(self) -> list[str]:
         return self._token_store.list_all_user_ids()
