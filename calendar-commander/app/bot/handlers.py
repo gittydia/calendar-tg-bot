@@ -16,8 +16,8 @@ from telegram.ext import (
 
 from app.bot.commands import HELP_TEXT
 from app.services.calendar_service import CalendarService
-from app.services.parser_service import ParserService
-from app.utils.formatters import format_event, format_numbered_event
+from app.services.parser_service import ParserService, ParsedEvent
+from app.utils.formatters import format_event, format_numbered_event, _format_time_range
 
 LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +79,12 @@ def register_handlers(application: Application, services: BotServices) -> None:
     application.add_handler(CommandHandler("create_event", create_event_command))
     application.add_handler(CommandHandler("delete_event", delete_event_command))
 
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            create_event_message_handler,
+        )
+    )
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -203,38 +209,139 @@ async def create_event_command(update: Update, context: ContextTypes.DEFAULT_TYP
     raw_text = " ".join(context.args or []).strip()
 
     if not raw_text:
+        context.user_data["creating_event"] = {"step": "title"}
         await update.effective_message.reply_text(
-            "Usage: /create_event <description>\n"
-            "Example: /create_event Meeting tomorrow at 3pm"
+            "Let's create an event! What's the title?"
         )
         return
 
     parsed = user.parser_service.parse_event_text(raw_text)
     if parsed is None:
+        context.user_data["creating_event"] = {
+            "step": "start",
+            "title": raw_text,
+        }
         await update.effective_message.reply_text(
-            "Couldn't parse a date/time from your input.\n"
-            "Try: /create_event Meeting tomorrow at 3pm"
+            f"I'll use \"{raw_text}\" as the title.\n"
+            "When should it start? (e.g., tomorrow at 3pm, 2026-05-25 15:00)"
         )
         return
 
+    await _create_and_reply(update, context, user, parsed)
+
+
+async def _create_and_reply(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: UserServices,
+    parsed: ParsedEvent,
+) -> None:
+    """Create the event and reply with the result."""
     try:
         event = await user.calendar_service.create_event(
             user.uid,
             title=parsed.title,
             start_time=parsed.start_time,
-            duration_minutes=60,
+            end_time=parsed.end_time,
         )
     except PermissionError as exc:
-        await update.effective_message.reply_text(str(exc))
+        if update.effective_message:
+            await update.effective_message.reply_text(str(exc))
         return
     except Exception as exc:
         LOGGER.exception("Failed to create event", exc_info=exc)
-        await update.effective_message.reply_text("Unable to create the event right now.")
+        if update.effective_message:
+            await update.effective_message.reply_text("Unable to create the event right now.")
         return
 
-    await update.effective_message.reply_text(
-        "✅ Event created:\n" + format_event(event, user.timezone)
-    )
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            "✅ Event created:\n" + format_event(event, user.timezone)
+        )
+
+
+async def create_event_message_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if context.user_data is None:
+        return
+    creation = context.user_data.get("creating_event")
+    if not creation:
+        return
+    if update.effective_user is None or update.effective_message is None:
+        return
+
+    services = _services(context)
+    user = services.for_user(str(update.effective_user.id))
+    text = (update.effective_message.text or "").strip()
+
+    if text.lower() == "cancel":
+        context.user_data.pop("creating_event", None)
+        await update.effective_message.reply_text("Event creation cancelled.")
+        return
+
+    step = creation.get("step")
+
+    if step == "title":
+        creation["title"] = text
+        creation["step"] = "start"
+        await update.effective_message.reply_text(
+            "When should it start? (e.g., tomorrow at 3pm, 2026-05-25 15:00)"
+        )
+
+    elif step == "start":
+        start_time = user.parser_service.parse_datetime(text)
+        if start_time is None:
+            await update.effective_message.reply_text(
+                "Couldn't understand that time. Please try again.\n"
+                "Examples: tomorrow at 3pm, 2026-05-25 15:00, next Friday 9am"
+            )
+            return
+        creation["start_time"] = start_time
+        creation["step"] = "end"
+        await update.effective_message.reply_text(
+            "When should it end?\n"
+            "Send a time (e.g., 5pm, 2 hours later) or \"skip\" for 1-hour duration."
+        )
+
+    elif step == "end":
+        if text.lower() == "skip":
+            creation["end_time"] = None
+        else:
+            end_time = user.parser_service.parse_datetime(text)
+            if end_time is None:
+                await update.effective_message.reply_text(
+                    "Couldn't understand that time. Send a time or \"skip\" for 1-hour duration."
+                )
+                return
+            creation["end_time"] = end_time
+
+        creation["step"] = "confirm"
+        title = creation["title"]
+        start = creation["start_time"]
+        end = creation.get("end_time")
+
+        time_str = _format_time_range(start, end) if end else start.strftime("%Y-%m-%d %I:%M %p")
+        await update.effective_message.reply_text(
+            f"Create this event?\n\n"
+            f"📌 {title}\n"
+            f"🕐 {time_str}\n\n"
+            f"Reply \"yes\" to confirm, \"no\" to cancel."
+        )
+
+    elif step == "confirm":
+        if text.lower() in ("yes", "y"):
+            title = creation["title"]
+            start_time = creation["start_time"]
+            end_time = creation.get("end_time")
+
+            parsed = ParsedEvent(title=title, start_time=start_time, end_time=end_time)
+            context.user_data.pop("creating_event", None)
+            await _create_and_reply(update, context, user, parsed)
+        else:
+            context.user_data.pop("creating_event", None)
+            await update.effective_message.reply_text("Event creation cancelled.")
 
 
 async def delete_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
