@@ -39,11 +39,20 @@ class CalendarService:
         now_utc = datetime.now(UTC).isoformat()
         return await self._list_events(telegram_user_id, now_utc, None, max_results=limit)
 
-    async def create_event(self, telegram_user_id: str, title: str, start_time: datetime, duration_minutes: int = 60) -> dict:
+    async def create_event(
+        self,
+        telegram_user_id: str,
+        title: str,
+        start_time: datetime,
+        end_time: datetime | None = None,
+    ) -> dict:
         tz = ZoneInfo(self._timezone)
         if start_time.tzinfo is None:
             start_time = start_time.replace(tzinfo=tz)
-        end_time = start_time + timedelta(minutes=duration_minutes)
+        if end_time is None:
+            end_time = start_time + timedelta(minutes=60)
+        elif end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=tz)
 
         body = {
             "summary": title,
