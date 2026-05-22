@@ -23,6 +23,32 @@ def _event_start_datetime(event: dict, timezone: str) -> datetime | None:
     return None
 
 
+def _event_end_datetime(event: dict, timezone: str) -> datetime | None:
+    """Normalize event end payload into timezone-aware datetime."""
+    end = event.get("end", {})
+    date_time = end.get("dateTime")
+    if date_time:
+        parsed = datetime.fromisoformat(date_time.replace("Z", "+00:00"))
+        return parsed.astimezone(ZoneInfo(timezone))
+
+    date_only = end.get("date")
+    if date_only:
+        return datetime.fromisoformat(f"{date_only}T00:00:00+00:00").astimezone(
+            ZoneInfo(timezone)
+        )
+
+    return None
+
+
+def _format_time_range(start_time: datetime, end_time: datetime | None) -> str:
+    """Format start/end as a readable time range."""
+    if end_time is None:
+        return start_time.strftime("%Y-%m-%d %I:%M %p")
+    if start_time.date() == end_time.date():
+        return f"{start_time.strftime('%Y-%m-%d %I:%M %p')} - {end_time.strftime('%I:%M %p')}"
+    return f"{start_time.strftime('%Y-%m-%d %I:%M %p')} - {end_time.strftime('%Y-%m-%d %I:%M %p')}"
+
+
 def format_event(event: dict, timezone: str) -> str:
     """Format a single event line item."""
     summary = event.get("summary", "(No title)")
@@ -30,7 +56,8 @@ def format_event(event: dict, timezone: str) -> str:
     if start_time is None:
         return f"• {summary} — time unavailable"
 
-    return f"• {start_time.strftime('%Y-%m-%d %I:%M %p')} — {summary}"
+    end_time = _event_end_datetime(event, timezone)
+    return f"• {_format_time_range(start_time, end_time)} — {summary}"
 
 
 def format_numbered_event(index: int, event: dict, timezone: str) -> str:
@@ -39,4 +66,6 @@ def format_numbered_event(index: int, event: dict, timezone: str) -> str:
     start_time = _event_start_datetime(event, timezone)
     if start_time is None:
         return f"{index}. {summary} — time unavailable"
-    return f"{index}. {start_time.strftime('%Y-%m-%d %I:%M %p')} — {summary}"
+
+    end_time = _event_end_datetime(event, timezone)
+    return f"{index}. {_format_time_range(start_time, end_time)} — {summary}"
