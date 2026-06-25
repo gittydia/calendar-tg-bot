@@ -34,8 +34,9 @@ from app.config import Settings, get_settings
 from app.services.auth_service import AuthService
 from app.services.calendar_service import CalendarService
 from app.services.parser_service import ParserService
+from app.services.tasks_service import TasksService
 from app.services.token_store import TokenStore
-from app.utils.formatters import format_event
+from app.utils.formatters import format_event, format_task
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
@@ -43,7 +44,10 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/tasks",
+]
 
 CONNECT_PAGE = """\
 <!DOCTYPE html>
@@ -85,10 +89,12 @@ def build_services(settings: Settings) -> BotServices:
         scopes=SCOPES,
     )
     calendar_service = CalendarService(auth_service=auth_service, timezone=settings.timezone)
+    tasks_service = TasksService(auth_service=auth_service)
     parser_service = ParserService(timezone=settings.timezone)
 
     return BotServices(
         calendar_service=calendar_service,
+        tasks_service=tasks_service,
         parser_service=parser_service,
         timezone=settings.timezone,
     )
@@ -111,15 +117,27 @@ async def send_daily_notifications(
         try:
             user = services.for_user(uid)
             events = await user.calendar_service.get_today_events(uid)
+            today = datetime.now(ZoneInfo(settings.timezone)).date()
+            tasks = await user.tasks_service.list_tasks_due_today(uid, today)
 
-            if not events:
+            lines = ["☀️ Good morning! Here's your schedule for today:"]
+
+            if events:
+                lines.append("")
+                lines.append("📌 Events:")
+                lines.extend(format_event(item, user.timezone) for item in events)
+
+            if tasks:
+                lines.append("")
+                lines.append("📋 Tasks:")
+                lines.extend(format_task(item) for item in tasks)
+
+            if not events and not tasks:
                 await telegram_app.bot.send_message(
                     chat_id=int(uid),
-                    text="☀️ Good morning! No events scheduled for today.",
+                    text="☀️ Good morning! Nothing scheduled for today.",
                 )
             else:
-                lines = ["☀️ Good morning! Here's your schedule for today:"]
-                lines.extend(format_event(item, user.timezone) for item in events)
                 await telegram_app.bot.send_message(
                     chat_id=int(uid),
                     text="\n".join(lines),
@@ -334,7 +352,7 @@ async def oauth_callback(request: Request):
     try:
         await telegram_app.bot.send_message(
             chat_id=int(state),
-            text="✅ Google Calendar connected successfully! You can now use /today, /events, /create_event, etc.",
+            text="✅ Google account connected successfully! You can now use /today, /events, /create_event, /tasks, /create_task, etc.",
         )
     except Exception as exc:
         LOGGER.warning("Could not send confirmation to user %s: %s", state, exc)
