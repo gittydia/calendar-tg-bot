@@ -11,6 +11,9 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("events", "Show next 10 upcoming events"),
     BotCommand("create_event", "Create event with natural language"),
     BotCommand("delete_event", "Delete an upcoming event"),
+    BotCommand("tasks", "Show your tasks"),
+    BotCommand("create_task", "Create a task"),
+    BotCommand("delete_task", "Delete a task"),
 ]
 
 HELP_TEXT = (
@@ -20,5 +23,8 @@ HELP_TEXT = (
     "/today — Show today's events\n"
     "/events — Show next 10 upcoming events\n"
     "/create_event &lt;text&gt; — Create event (e.g. /create_event Meeting tomorrow at 3pm)\n"
-    "/delete_event — Select an event to delete"
+    "/delete_event — Select an event to delete\n"
+    "/tasks — Show your tasks\n"
+    "/create_task &lt;text&gt; — Create a task\n"
+    "/delete_task — Select a task to delete"
 )
