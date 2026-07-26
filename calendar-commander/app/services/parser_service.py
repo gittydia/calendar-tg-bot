@@ -1,10 +1,10 @@
-"""Natural language parsing service for event text."""
+"""Natural language parsing service for event and task text."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from dateparser import parse as parse_date
 from dateparser.search import search_dates
@@ -37,6 +37,14 @@ class ParsedEvent:
     title: str
     start_time: datetime
     end_time: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ParsedTask:
+    """Represents parsed task details extracted from user input."""
+
+    title: str
+    due_date: date | None = None
 
 
 class ParserService:
@@ -102,6 +110,61 @@ class ParserService:
                 end_time = start_time + timedelta(minutes=total_minutes)
 
         return ParsedEvent(title=title, start_time=start_time, end_time=end_time)
+
+    def parse_task_text(self, raw_text: str) -> ParsedTask | None:
+        """Extract task title and due date from a natural language sentence."""
+        cleaned = raw_text.strip()
+        if not cleaned:
+            return None
+
+        raw_matches = search_dates(
+            cleaned,
+            settings={
+                "TIMEZONE": self._timezone,
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "PREFER_DATES_FROM": "future",
+            },
+        )
+        if not raw_matches:
+            return None
+
+        matches = [
+            (t, dt)
+            for t, dt in raw_matches
+            if t.strip().lower() not in _NON_DATE_WORDS
+            and not _DURATION_LIKE_RE.fullmatch(t.strip())
+        ]
+        if not matches:
+            return None
+
+        title = cleaned
+        for matched_text, _ in matches:
+            title = title.replace(matched_text, "", 1)
+        title = JUNK_WORDS_RE.sub("", title).strip(" ,.-")
+        title = re.sub(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", "", title, flags=re.IGNORECASE).strip(" ,.-")
+        if not title:
+            title = cleaned
+
+        due_date = matches[0][1].date()
+
+        return ParsedTask(title=title, due_date=due_date)
+
+    def parse_date(self, text: str) -> date | None:
+        """Parse a single date string into a date object."""
+        cleaned = text.strip()
+        if not cleaned:
+            return None
+        dt = parse_date(
+            cleaned,
+            settings={
+                "TIMEZONE": self._timezone,
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "PREFER_DATES_FROM": "future",
+            },
+        )
+        if dt is None:
+            return None
+        return dt.date()
 
     def parse_datetime(self, text: str) -> datetime | None:
         """Parse a single date/time string into a timezone-aware datetime."""
