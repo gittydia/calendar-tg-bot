@@ -44,8 +44,11 @@ def calendar_service(settings, token_store):
 
 @pytest.fixture
 def services(token_store, calendar_service, settings):
+    tasks_service = MagicMock()
+    tasks_service.list_tasks_due_today = AsyncMock(return_value=[])
     return BotServices(
         calendar_service=calendar_service,
+        tasks_service=tasks_service,
         parser_service=MagicMock(),
         timezone=settings.timezone,
     )
@@ -74,7 +77,7 @@ async def test_user_no_events(token_store, services, telegram_app, settings):
 
     telegram_app.bot.send_message.assert_awaited_once_with(
         chat_id=12345,
-        text="\u2600\ufe0f Good morning! No events scheduled for today.",
+        text="\u2600\ufe0f Good morning! Nothing scheduled for today.",
     )
 
 
@@ -97,7 +100,8 @@ async def test_user_with_events(token_store, services, telegram_app, settings):
     call = telegram_app.bot.send_message.await_args
     assert call.kwargs["chat_id"] == 12345
     text = call.kwargs["text"]
-    assert "\u2600\ufe0f Good morning! Here's your schedule for today:" in text
+    assert "Good morning! Here's your schedule for today:" in text
+    assert "📌 Events:" in text
     assert "Team standup" in text
     assert "Lunch with client" in text
 
