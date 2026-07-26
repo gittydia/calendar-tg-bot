@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 
@@ -69,3 +69,25 @@ def format_numbered_event(index: int, event: dict, timezone: str) -> str:
 
     end_time = _event_end_datetime(event, timezone)
     return f"{index}. {_format_time_range(start_time, end_time)} — {summary}"
+
+
+def format_task(task: dict) -> str:
+    """Format a single task line item."""
+    title = task.get("title", "(No title)")
+    due = task.get("due")
+    if due:
+        due_date = datetime.fromisoformat(due.replace("Z", "+00:00"))
+        due_str = due_date.strftime("%b %d, %Y")
+        return f"• {title} (due {due_str})"
+    return f"• {title}"
+
+
+def format_numbered_task(index: int, task: dict) -> str:
+    """Format a numbered task line for deletion workflow."""
+    title = task.get("title", "(No title)")
+    due = task.get("due")
+    if due:
+        due_date = datetime.fromisoformat(due.replace("Z", "+00:00"))
+        due_str = due_date.strftime("%b %d, %Y")
+        return f"{index}. {title} (due {due_str})"
+    return f"{index}. {title}"
